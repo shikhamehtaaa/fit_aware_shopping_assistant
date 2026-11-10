@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from google import genai
 from google.genai import types
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from rank_bm25 import BM25Okapi
 
 MODEL = "gemini-3-flash-preview"
@@ -193,7 +193,7 @@ app = FastAPI()
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[dict] = []
+    history: list[dict] = Field(default_factory=list)
 
 
 @app.get("/health")
@@ -209,46 +209,289 @@ def chat(req: ChatRequest):
     return {"answer": answer, "tool_calls": tool_calls, "products": cards}
 
 
-PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Fit-Aware Shopping Assistant</title>
+PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f6f5ef">
+<title>Fit Notes — Find your fit</title>
 <style>
-body{font-family:system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#222}
-h1{margin-bottom:.2rem}.sub{color:#555;margin-top:0}
-textarea{width:100%;box-sizing:border-box;padding:.7rem;font-size:1rem;border:1px solid #bbb;border-radius:8px}
-button{padding:.6rem 1.1rem;font-size:1rem;border:0;border-radius:8px;background:#222;color:#fff;cursor:pointer}
-.chip{background:#eee;color:#222;font-size:.85rem;margin:.2rem .3rem .2rem 0}
-#answer{white-space:pre-wrap;margin:1rem 0;line-height:1.5}
-.cards{display:flex;gap:.8rem;flex-wrap:wrap}.card{width:215px;border:1px solid #ddd;border-radius:10px;padding:.6rem;font-size:.85rem}
-.card img{width:100%;height:210px;object-fit:cover;border-radius:6px}
-details{margin-top:1rem;font-size:.85rem}pre{white-space:pre-wrap;background:#f6f6f6;padding:.5rem;border-radius:6px}
-</style></head><body>
-<h1>Fit-Aware Shopping Assistant</h1>
-<p class="sub">Describe a clothing item and your measurements. The agent searches ~N_PRODUCTS Amazon fashion products and checks what thousands of reviews say about how each one actually fits. Built for people who are tired of guessing sizes online. It only knows this dataset: no live stock or prices, and it will say when the reviews don't answer your question.</p>
-<textarea id="q" rows="3" placeholder="e.g. A boxy cropped cardigan under $30. I'm 5'3&quot; and tops usually swallow me."></textarea>
-<div><button onclick="ask()">Find it</button>
-<button class="chip" onclick="fill(this)">flowy summer dress, I'm 5'4" and between a M and L</button>
-<button class="chip" onclick="fill(this)">high-waisted jeans that don't run small, under $40</button></div>
-<div id="answer"></div><div class="cards" id="cards"></div><div id="trace"></div>
-<script>
-function fill(b){document.getElementById('q').value=b.textContent}
-async function ask(){
- const q=document.getElementById('q').value.trim(); if(!q)return;
- const a=document.getElementById('answer'),c=document.getElementById('cards'),t=document.getElementById('trace');
- a.textContent='Searching and reading reviews...';c.innerHTML='';t.innerHTML='';
- try{
-  const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q})});
-  const d=await r.json(); a.textContent=d.answer;
-  (d.products||[]).forEach(p=>{const e=document.createElement('div');e.className='card';
-   const im=document.createElement('img');im.src=p.image_url;im.referrerPolicy='no-referrer';e.appendChild(im);
-   const s=document.createElement('div');s.textContent=p.title+(p.price?' - $'+p.price:'')+' | fit reviews: '+p.fit.small+' small, '+p.fit.true+' true, '+p.fit.large+' large';
-   e.appendChild(s);c.appendChild(e)});
-  const det=document.createElement('details');const sm=document.createElement('summary');sm.textContent='Show work ('+d.tool_calls.length+' tool calls)';det.appendChild(sm);
-  const pre=document.createElement('pre');pre.textContent=JSON.stringify(d.tool_calls,null,2);det.appendChild(pre);t.appendChild(det);
- }catch(e){a.textContent='Something went wrong: '+e}
+:root {
+  --paper: #f6f5ef;
+  --surface: #fffefa;
+  --ink: #202820;
+  --muted: #73796f;
+  --line: #e5e5da;
+  --green: #315b45;
+  --green-dark: #244633;
+  --soft-green: #e9efe8;
+  --sand: #eeece2;
+  --shadow: 0 12px 34px rgba(37, 49, 38, .07);
 }
-</script></body></html>""".replace("N_PRODUCTS", str(len(df)))
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.55;
+}
+button, textarea { font: inherit; }
+button { cursor: pointer; }
+.page { width: min(960px, calc(100% - 40px)); margin: 0 auto; padding: 30px 0 64px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 66px; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: .92rem; font-weight: 750; letter-spacing: -.03em; }
+.brand-mark {
+  width: 34px; height: 34px; display: grid; place-items: center;
+  border-radius: 11px; background: var(--green); color: white;
+  font-family: Georgia, serif; font-size: 1.2rem; font-style: italic;
+}
+.top-note { color: var(--muted); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; }
+.hero { max-width: 690px; margin: 0 auto 34px; text-align: center; }
+.eyebrow { color: var(--green); font-size: .74rem; font-weight: 750; letter-spacing: .16em; text-transform: uppercase; }
+h1 {
+  margin: 13px 0 12px; font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2.8rem, 7vw, 4.8rem); font-weight: 400; letter-spacing: -.065em; line-height: .98;
+}
+h1 em { color: var(--green); font-weight: 400; }
+.intro { max-width: 570px; margin: 0 auto; color: var(--muted); font-size: 1rem; }
+.search-panel {
+  max-width: 760px; margin: 0 auto; padding: 13px;
+  border: 1px solid var(--line); border-radius: 19px; background: var(--surface); box-shadow: var(--shadow);
+}
+textarea {
+  display: block; width: 100%; min-height: 112px; resize: vertical;
+  padding: 14px 15px; border: 0; outline: 0; background: transparent;
+  color: var(--ink); font-size: 1rem; line-height: 1.6;
+}
+textarea::placeholder { color: #9a9d93; }
+.composer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 3px 2px 12px; }
+.hint { color: #92968c; font-size: .76rem; }
+.primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 9px;
+  min-height: 43px; padding: 0 19px; border: 0; border-radius: 11px;
+  background: var(--green); color: white; font-size: .9rem; font-weight: 700;
+  transition: background .18s ease, transform .18s ease;
+}
+.primary:hover { background: var(--green-dark); transform: translateY(-1px); }
+.primary:disabled { opacity: .55; cursor: wait; transform: none; }
+.arrow { font-size: 1.1rem; }
+.examples { max-width: 760px; margin: 17px auto 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.example {
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: transparent; color: #626b60; font-size: .78rem; transition: all .18s ease;
+}
+.example:hover { border-color: #a9b9aa; background: var(--soft-green); color: var(--green-dark); }
+.results { max-width: 820px; margin: 42px auto 0; }
+.section-label { margin: 0 0 13px; color: var(--muted); font-size: .72rem; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
+.conversation { display: grid; gap: 13px; }
+.message { max-width: 88%; padding: 15px 18px; border-radius: 16px; white-space: pre-wrap; line-height: 1.65; font-size: .94rem; }
+.message.user { justify-self: end; background: var(--green); color: white; border-bottom-right-radius: 5px; }
+.message.assistant { justify-self: start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 5px; }
+.status { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .88rem; padding: 12px 2px; }
+.spinner { width: 16px; height: 16px; border: 2px solid #d8dfd6; border-top-color: var(--green); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.product-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 15px; margin-top: 25px; }
+.product-card { overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 5px 18px rgba(37,49,38,.04); }
+.product-image-wrap { height: 225px; padding: 10px; background: #f0efe8; }
+.product-card img { width: 100%; height: 100%; object-fit: contain; mix-blend-mode: multiply; }
+.product-info { padding: 13px 14px 15px; }
+.product-title { margin: 0 0 7px; font-size: .88rem; font-weight: 700; line-height: 1.4; }
+.product-meta { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font-size: .78rem; }
+.fit-line { margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--line); color: #5d675c; font-size: .75rem; }
+.fit-line strong { color: var(--green-dark); }
+.trace { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 15px; }
+details summary { color: var(--muted); cursor: pointer; font-size: .8rem; font-weight: 650; }
+pre { overflow-x: auto; margin-top: 12px; padding: 15px; border-radius: 11px; background: #202820; color: #e9eee6; font-size: .74rem; line-height: 1.55; }
+.footer { margin: 58px auto 0; max-width: 760px; padding-top: 18px; border-top: 1px solid var(--line); color: #898e83; font-size: .76rem; text-align: center; }
+.footer strong { color: #626b60; font-weight: 700; }
+@media (max-width: 600px) {
+  .page { width: min(100% - 26px, 960px); padding-top: 19px; }
+  .topbar { margin-bottom: 49px; }
+  .top-note { font-size: .66rem; }
+  .hero { margin-bottom: 25px; }
+  .intro { font-size: .91rem; }
+  .search-panel { border-radius: 15px; }
+  .composer-bottom { align-items: flex-end; }
+  .hint { max-width: 150px; }
+  .message { max-width: 96%; }
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .product-image-wrap { height: 170px; }
+}
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">f.</span><span>fit notes</span></div>
+    <div class="top-note">Thoughtful shopping, better fit</div>
+  </header>
+
+  <section class="hero">
+    <div class="eyebrow">A little less guesswork</div>
+    <h1>Find clothes that<br><em>feel like you.</em></h1>
+    <p class="intro">Tell us what you're looking for. Fit Notes searches clothing reviews for real fit patterns, so you can shop with a little more confidence.</p>
+  </section>
+
+  <form class="search-panel" id="search-form">
+    <textarea id="q" rows="3" aria-label="Describe what you're looking for" placeholder="Try: A cropped cardigan under $30. I'm 5'3&quot; and usually find sweaters too long..."></textarea>
+    <div class="composer-bottom">
+      <span class="hint">Include your usual size, height, or budget if helpful.</span>
+      <button class="primary" id="ask-button" type="submit">Find my fit <span class="arrow">↗</span></button>
+    </div>
+  </form>
+
+  <div class="examples" aria-label="Example searches">
+    <button class="example" type="button" data-prompt="A flowy summer dress. I'm 5'4&quot; and between a medium and large.">A summer dress</button>
+    <button class="example" type="button" data-prompt="High-waisted jeans that don't run small, under $40.">Jeans under $40</button>
+    <button class="example" type="button" data-prompt="A soft knit cardigan that fits petite frames.">Petite-friendly knits</button>
+  </div>
+
+  <section class="results" id="results" aria-live="polite" hidden>
+    <p class="section-label">Your fit search</p>
+    <div class="conversation" id="conversation"></div>
+    <div class="product-grid" id="products"></div>
+    <div class="trace" id="trace"></div>
+  </section>
+
+  <footer class="footer">
+    <strong>Fit Notes</strong> uses fit patterns found in its review dataset. Product availability and current prices are not live-checked.
+  </footer>
+</main>
+
+<script>
+const form = document.getElementById('search-form');
+const input = document.getElementById('q');
+const askButton = document.getElementById('ask-button');
+const results = document.getElementById('results');
+const conversation = document.getElementById('conversation');
+const productGrid = document.getElementById('products');
+const trace = document.getElementById('trace');
+const history = [];
+
+document.querySelectorAll('[data-prompt]').forEach(button => {
+  button.addEventListener('click', () => {
+    input.value = button.dataset.prompt;
+    input.focus();
+  });
+});
+
+function addMessage(role, content) {
+  const bubble = document.createElement('div');
+  bubble.className = 'message ' + role;
+  bubble.textContent = content;
+  conversation.appendChild(bubble);
+  return bubble;
+}
+
+function showProducts(products) {
+  productGrid.replaceChildren();
+  (products || []).forEach(product => {
+    const card = document.createElement('article');
+    card.className = 'product-card';
+
+    if (product.image_url) {
+      const imageWrap = document.createElement('div');
+      imageWrap.className = 'product-image-wrap';
+      const image = document.createElement('img');
+      image.src = product.image_url;
+      image.alt = product.title || 'Clothing product';
+      image.loading = 'lazy';
+      image.referrerPolicy = 'no-referrer';
+      image.onerror = () => imageWrap.remove();
+      imageWrap.appendChild(image);
+      card.appendChild(imageWrap);
+    }
+
+    const info = document.createElement('div');
+    info.className = 'product-info';
+
+    const title = document.createElement('h3');
+    title.className = 'product-title';
+    title.textContent = product.title || 'Product';
+    info.appendChild(title);
+
+    const meta = document.createElement('div');
+    meta.className = 'product-meta';
+    const price = document.createElement('span');
+    price.textContent = product.price != null ? '$' + Number(product.price).toFixed(2) : 'Price unavailable';
+    const rating = document.createElement('span');
+    rating.textContent = product.rating != null ? '★ ' + Number(product.rating).toFixed(1) : '';
+    meta.append(price, rating);
+    info.appendChild(meta);
+
+    const fit = product.fit || {};
+    const fitLine = document.createElement('div');
+    fitLine.className = 'fit-line';
+    fitLine.innerHTML = '<strong>Fit mentions</strong> · ' +
+      Number(fit.small || 0) + ' small · ' +
+      Number(fit.true || 0) + ' true · ' +
+      Number(fit.large || 0) + ' large';
+    info.appendChild(fitLine);
+
+    card.appendChild(info);
+    productGrid.appendChild(card);
+  });
+}
+
+function showToolCalls(calls) {
+  trace.replaceChildren();
+  if (!calls || !calls.length) return;
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'How this search worked · ' + calls.length + ' tool calls';
+  const pre = document.createElement('pre');
+  pre.textContent = JSON.stringify(calls, null, 2);
+  details.append(summary, pre);
+  trace.appendChild(details);
+}
+
+form.addEventListener('submit', async event => {
+  event.preventDefault();
+  const message = input.value.trim();
+  if (!message || askButton.disabled) return;
+
+  results.hidden = false;
+  addMessage('user', message);
+  const loading = document.createElement('div');
+  loading.className = 'status';
+  loading.innerHTML = '<span class="spinner"></span><span>Looking through products and fit reviews…</span>';
+  conversation.appendChild(loading);
+  productGrid.replaceChildren();
+  trace.replaceChildren();
+  askButton.disabled = true;
+  askButton.textContent = 'Searching…';
+
+  try {
+    const response = await fetch('/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history: history.slice(-6) })
+    });
+    if (!response.ok) throw new Error('The server returned an error (' + response.status + ').');
+    const data = await response.json();
+    loading.remove();
+    addMessage('assistant', data.answer || 'I could not find a useful answer for that search.');
+    history.push({ role: 'user', content: message });
+    history.push({ role: 'assistant', content: data.answer || '' });
+    showProducts(data.products);
+    showToolCalls(data.tool_calls);
+    input.value = '';
+  } catch (error) {
+    loading.remove();
+    addMessage('assistant', 'Sorry, something went wrong. ' + error.message + ' Please try again.');
+  } finally {
+    askButton.disabled = false;
+    askButton.innerHTML = 'Find my fit <span class="arrow">↗</span>';
+  }
+});
+</script>
+</body>
+</html>""".replace("N_PRODUCTS", str(len(df)))
 
 
 @app.get("/", response_class=HTMLResponse)
 def home():
     return PAGE
+
