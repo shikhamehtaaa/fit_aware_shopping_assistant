@@ -1,246 +1,264 @@
-# Fit Notes — Fit-Aware Clothing Shopping Assistant
+# Fit Notes: Evidence-Grounded Clothing Recommendations
 
 ## 1. Project Overview
 
-Fit Notes is a clothing shopping assistant that helps users find clothing based on product descriptions, budgets, and personal fit preferences. Instead of relying only on product descriptions or average star ratings, the agent searches a dataset of Amazon clothing products and uses information extracted from customer reviews to evaluate how each product fits.
+Fit Notes is an AI-powered clothing recommendation assistant designed to help shoppers find products that are more likely to fit them based on customer review data.
 
-The target users are people shopping for clothing online who want more information about sizing before purchasing. For example, a user can describe the type of clothing they want, provide their height or usual size, and ask for products that fit within a certain budget.
+General-purpose shopping assistants may recommend products based on descriptions, product features, or broad customer sentiment. Fit Notes goes a step further by retrieving fit-related information from customer reviews, including whether reviewers found an item true to size, too small, or too large.
 
-The agent uses Google's Gemini model with two custom tools to search the product dataset and retrieve detailed fit evidence. It can report how many reviewers said an item runs small, true to size, or large, and use reviewer heights and purchased sizes when available.
+The application combines product search with review-derived fit evidence to generate recommendations. Users can ask for clothing recommendations in natural language, provide preferences such as budget or fit requirements, and inspect the evidence behind the assistant's suggestions.
 
-The application is built with Python and FastAPI, with a web-based chat interface.
+**Target audience:** Online clothing shoppers who want recommendations that account for fit, sizing, and the experiences of previous customers.
 
-## 2. Data Sources and Loading
+**Project question:**
 
-The application loads four Parquet files from a local `data/` directory:
+Can customer-review-derived fit information help an AI shopping assistant make more reliable and personalized clothing recommendations than a general-purpose language model?
 
-| File | How it is used |
+## 2. Dataset
+
+### Dataset description
+
+Fit Notes uses four Parquet files:
+
+| File | Description |
 |---|---|
-| `products.parquet` | Product information, including title, store, price, features, description, image URL, and product ASIN. |
-| `reviews.parquet` | Customer review text and review IDs. |
-| `fit_extractions.parquet` | Fit-related information extracted from reviews, including fit labels, problem areas, reviewer height, and purchased size. |
-| `fit_summary.parquet` | Aggregated fit information used to summarize the number of reviews indicating that a product runs small, true to size, or large. |
+| `products.parquet` | Product information used for searching and displaying recommendations. |
+| `reviews.parquet` | Customer reviews associated with products. |
+| `fit_extractions.parquet` | Extracted fit-related information from customer reviews. |
+| `fit_summary.parquet` | Aggregated fit information for individual products. |
 
-The code expects the files to be located in a folder named `data` alongside the Python application:
+The application combines `products.parquet` and `fit_summary.parquet` using an inner join on `parent_asin`.
+
+The review and fit-related data are used to provide evidence about how customers experienced the fit of individual products.
+
+### Dataset source and provenance
+
+**Dataset source:**
+
+**Original dataset URL or reference:**
+
+**How the dataset was collected:**
+
+**Date or time period covered by the dataset:**
+
+**Number of products:**
+
+**Number of reviews:**
+
+**Number of fit extractions:**
+
+**Other relevant dataset details:**
+
+### Data directory structure
+
+The application expects the following files inside a `data/` directory:
 
 ```text
 project/
 ├── app.py
-└── data/
-    ├── products.parquet
-    ├── reviews.parquet
-    ├── fit_extractions.parquet
-    └── fit_summary.parquet
+├── data/
+│   ├── products.parquet
+│   ├── reviews.parquet
+│   ├── fit_extractions.parquet
+│   └── fit_summary.parquet
+├── pyproject.toml
+├── uv.lock
+└── README.md
 ```
 
-At startup, the application reads the four files using Pandas' `read_parquet()` function. It then joins `products.parquet` with `fit_summary.parquet` using `parent_asin` and an inner join. Product prices are converted to numeric values so they can be filtered by budget.
+## 3. Application Architecture
 
-The code identifies the dataset as containing Amazon clothing products and customer reviews. However, the original source URL, collection method, and date of collection are not specified in the application code, so those details are not claimed here.
+### Product retrieval
 
-## 3. How the Agent Works
+Fit Notes uses BM25, a ranking algorithm for text retrieval, to identify products relevant to a user's query.
 
-The agent uses Gemini (`gemini-3-flash-preview`) and two custom functions.
-
-### Tool 1: `search_products`
-
-This tool searches the product catalog using BM25 keyword ranking.
-
-It searches across each product's:
-- Title
+The searchable product text includes:
+- Product title
 - Store
-- Features
-- First 500 characters of its description
+- Product features
+- The first 500 characters of the product description
 
-Before returning results, it filters out products with fewer than three fit-related reviews by default. It can also apply a maximum price filter.
+The application retrieves relevant products and can filter results using:
+- Maximum price
+- Minimum number of fit reviews
 
-The function returns up to five matching products by default, including product information and counts of reviews indicating that the item runs small, true to size, or large.
+The default search returns up to five products.
 
-### Tool 2: `get_fit_evidence`
+### Agent tools
 
-After finding potential products, the agent can use this tool to retrieve more detailed fit information for a specific product ASIN.
+The Gemini model can call two tools to retrieve information from the dataset.
 
-It returns:
-- Counts of reviews categorized as small, true to size, or large
-- The number of reviews analyzed
-- Common fit-related problem areas
-- Reviewer heights and purchased sizes, when available
-- Short review excerpts and their review IDs
+**`search_products`**
 
-This allows the agent to support recommendations with actual review evidence rather than relying only on product descriptions.
+Searches for products relevant to a user's request. It supports an optional maximum price and minimum fit-review count.
 
-### Recommendation Process
+**`get_fit_evidence`**
 
-The system prompt instructs Gemini to:
+Retrieves fit-related evidence for a specific product. The returned information includes:
+- Counts of reviews by fit label
+- Common fit problem areas
+- Reviewer height and purchased-size details, when available
+- Short review excerpts
+- Review IDs that can be used to trace the evidence
 
-1. Convert the user's request into concrete product search terms.
-2. Search the dataset, trying a second query if the first search is weak.
-3. Retrieve detailed fit evidence for the two or three strongest candidates.
-4. Recommend no more than three products.
-5. Include product ASINs, review IDs, and sample sizes when explaining recommendations.
-6. Identify when fewer than five reviews provide fit evidence.
-7. Compare reviewer heights and sizes with the user's information when possible.
-8. Be transparent about information the dataset cannot provide, such as current stock, today's prices, or fabric stretch.
+### Agent workflow
 
-The agent can make up to six model/tool interaction turns per request.
+1. The user submits a clothing recommendation request through the frontend.
+2. The Gemini model interprets the request and determines which dataset tools are needed.
+3. The model searches for relevant products using `search_products`.
+4. The model retrieves fit evidence for promising candidates using `get_fit_evidence`.
+5. The model combines product information and review-derived fit evidence to produce recommendations.
+6. The frontend displays the response, recommended products, and tool-call information.
 
-## 4. Sample Queries and Model Comparison
+The application limits the conversation history to the most recent six turns and allows up to six tool-call iterations during a response.
 
-The following three test queries are taken from the example prompts already included in the application's original frontend.
+### Evidence and limitations
 
-**Important:** The exact product recommendations, review counts, and model responses must be generated by running the application against the actual Parquet files. The source code alone does not contain those outputs. They are therefore left as results-to-record rather than fabricated examples.
+The assistant is instructed to:
+- Search using concrete product terms.
+- Try another search query if the initial results are weak.
+- Inspect multiple product candidates before making recommendations.
+- Recommend no more than three products.
+- Reference product ASINs and review IDs when presenting evidence.
+- Report the number of fit reviews supporting a recommendation.
+- Warn users when fewer than five fit reviews are available.
+- Compare reviewer height and purchased size when that information is available.
+- Avoid making unsupported claims about live inventory, current prices, or fabric stretch.
 
-For a fair comparison, the baseline should use the same Gemini model (`gemini-3-flash-preview`) with the same user query, but without tools and without a system prompt. The agent response should come from the application's `/chat` endpoint.
+## 4. Frontend and User Instructions
 
-### Sample Query 1: Cropped cardigan
+### How to use Fit Notes
 
-**Query:**
+1. **Describe what you are looking for.** Enter a natural-language request describing the clothing item, desired fit, budget, or other preferences.
+2. **Review the recommendations.** The assistant searches the product dataset and presents relevant options.
+3. **Inspect the evidence.** Review the fit information and tool-call details to understand what supports each recommendation.
 
-> A boxy cropped cardigan under $30. I'm 5'3" and tops usually swallow me.
+Users can also select one of the example prompts displayed in the frontend to try the application.
 
-**Expected agent behavior:**
+### Example prompts
 
-The agent should search for cropped cardigans and apply the $30 price limit. It should inspect fit evidence for promising products and use reviewer heights and purchased sizes, where available, to assess whether the products may work for someone who is 5'3".
+The frontend includes the following example prompts:
 
-| Response | Result |
-|---|---|
-| Agent with tools | **Run and record:** Actual recommendation from `/chat`, including product ASINs, fit-review counts, and review IDs. |
-| Gemini without tools or system prompt | **Run and record:** Actual response from the same model using only the query. |
+- 
+- 
+- 
 
-**Data sources used by the agent:**
-- `products.parquet` — product descriptions, titles, and prices.
-- `fit_summary.parquet` — fit-review counts used for product filtering.
-- `fit_extractions.parquet` — reviewer heights, purchased sizes, and fit labels.
-- `reviews.parquet` — review excerpts associated with review IDs.
-- API endpoint: `POST /chat`.
+### What the application provides
 
-### Sample Query 2: Summer dress
+Fit Notes provides product recommendations supported by information retrieved from its product and fit-review datasets. Recommendations are based on the available data and should not be interpreted as guarantees that a product will fit a particular shopper.
 
-**Query:**
+## 5. Assignment Path: Evals + Simple RAG
 
-> flowy summer dress, I'm 5'4" and between a M and L
+**Selected assignment path:**
 
-**Expected agent behavior:**
+### Research questions
 
-The agent should search for flowy summer dresses and inspect the fit evidence for matching products. It should use reviewer heights and purchased sizes when available to provide relevant sizing context. It should acknowledge when the dataset does not contain enough comparable reviewer information.
+1. Can customer reviews be used to identify whether a clothing item generally fits true to size, runs small, or runs large?
+2. Can reviewer height and purchased-size information provide more useful fit guidance?
+3. Do recommendations grounded in retrieved product and fit-review evidence differ from recommendations produced by a general-purpose language model without access to the dataset?
 
-| Response | Result |
-|---|---|
-| Agent with tools | **Run and record:** Actual recommendation from `/chat`, including product ASINs, fit-review counts, and review IDs. |
-| Gemini without tools or system prompt | **Run and record:** Actual response from the same model using only the query. |
+### Evaluation dataset
 
-**Data sources used by the agent:**
-- `products.parquet` — product descriptions and titles.
-- `fit_summary.parquet` — fit-review counts.
-- `fit_extractions.parquet` — fit labels and reviewer details.
-- `reviews.parquet` — review excerpts and review IDs.
-- API endpoint: `POST /chat`.
+**Location of the evaluation questions and labels:**
 
-### Sample Query 3: High-waisted jeans
+**Number of labeled evaluation samples:**
 
-**Query:**
+**How the evaluation questions were created:**
 
-> high-waisted jeans that don't run small, under $40
+**How expected answers were labeled (gold/silver):**
 
-**Expected agent behavior:**
+**How the source of each evaluation sample was recorded:**
 
-The agent should search for high-waisted jeans and apply the $40 price limit. It should prioritize products whose fit evidence does not indicate that they consistently run small. Recommendations should include the number of reviews supporting the fit assessment.
+**Confirmation that evaluation samples were not included in the agent's few-shot prompts:**
 
-| Response | Result |
-|---|---|
-| Agent with tools | **Run and record:** Actual recommendation from `/chat`, including product ASINs, fit-review counts, and review IDs. |
-| Gemini without tools or system prompt | **Run and record:** Actual response from the same model using only the query. |
+### Evaluation metrics and scorers
 
-**Data sources used by the agent:**
-- `products.parquet` — product descriptions, titles, and prices.
-- `fit_summary.parquet` — counts of small, true-to-size, and large fit reviews.
-- `fit_extractions.parquet` — detailed fit labels and extracted reviewer information.
-- `reviews.parquet` — supporting review excerpts and review IDs.
-- API endpoint: `POST /chat`.
+The assignment requires at least two scorer types.
 
-### Running the Comparison
+**Scorer 1 — Type and description:**
 
-To generate the actual answers, submit each query to the application's `POST /chat` endpoint. The endpoint returns:
-- `answer`: the agent's response.
-- `tool_calls`: the tools called and previews of their results.
-- `products`: product cards extracted from ASINs cited in the response.
+**Scorer 2 — Type and description:**
 
-For the baseline, call the same Gemini model with only the user query. Do not pass a system instruction or tools.
+**Additional scorers, if applicable:**
 
-A minimal baseline call using the Google Gen AI SDK is:
+**How scorer results are combined or interpreted:**
 
-```python
-response = client.models.generate_content(
-    model="gemini-3-flash-preview",
-    contents="YOUR SAMPLE QUERY",
-    config=types.GenerateContentConfig(temperature=0.2)
-)
-
-print(response.text)
-```
-
-Record both actual responses for each query in the comparison tables above. This makes it possible to compare whether access to the product and review data improves the specificity and evidence behind the recommendations.
-
-## 5. Running the Application
-
-### Requirements
-
-The application imports the following Python packages:
-
-- `fastapi`
-- `uvicorn`
-- `pandas`
-- `numpy`
-- `google-genai`
-- `rank-bm25`
-- `pyarrow` (for reading Parquet files)
-
-The application also requires access to a configured Google Gen AI environment. The code initializes the client with `genai.Client()` and includes a comment indicating that it is intended to use Vertex AI through Google environment variables.
-
-### Install dependencies
+### Evaluation command
 
 ```bash
-pip install fastapi uvicorn pandas numpy google-genai rank-bm25 pyarrow
+
 ```
 
-### Configure Google Gen AI
+### Baseline evaluation
 
-Configure the Google Gen AI environment for Vertex AI before starting the application. The code expects the appropriate Google Cloud project and location environment variables to be available.
+**Baseline configuration:**
 
-### Start the server
+**Baseline evaluation results:**
 
-From the project directory, run:
+**Baseline output examples:**
 
-```bash
-uvicorn app:app --reload
-```
+### Iterative improvement / hill-climbing log
 
-Open the local address printed by Uvicorn in your browser to access the application.
+The assignment requires a baseline and at least two subsequent changes, with evaluation results recorded for each iteration.
 
-### API Endpoints
+| Version | Change made | Evaluation results | Observations |
+|---|---|---|---|
+| Baseline |  |  |  |
+| Iteration 1 |  |  |  |
+| Iteration 2 |  |  |  |
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/` | GET | Serves the web-based chat interface. |
-| `/health` | GET | Returns application status and the number of loaded products. |
-| `/chat` | POST | Accepts a user message and conversation history, runs the agent, and returns the answer, tool calls, and product cards. |
+### Margin of error
 
-Example request:
+The assignment specifies a margin of error of approximately:
 
-```json
-{
-  "message": "high-waisted jeans that don't run small, under $40",
-  "history": []
-}
-```
+\[
+\pm \frac{1}{\sqrt{n}}
+\]
 
-## 6. Limitations
+where \(n\) is the number of labeled evaluation samples.
 
-- **Dataset coverage:** The agent can only recommend products present in the local dataset.
-- **Search method:** Product retrieval uses BM25 keyword matching, so results depend on overlap between the query and product text.
-- **Fit evidence:** Recommendations depend on the fit information extracted from customer reviews. Some products may have limited evidence.
-- **Reviewer information:** Height and purchased size are only available when reviewers provided that information and it was extracted.
-- **No live shopping information:** The application does not check current inventory, availability, or today's prices.
-- **No direct measurement prediction:** The agent compares user-provided information with available reviewer details; it does not calculate a guaranteed size.
-- **Dataset provenance:** The code does not specify the original dataset URL or collection methodology.
+**Number of evaluation samples used:**
 
-Fit Notes is intended to make online clothing recommendations more evidence-based by connecting product search with customer-reported fit information.
+**Calculated margin of error:**
+
+**Interpretation:**
+
+## 6. Comparison: Agent vs. General-Purpose Model
+
+To evaluate the value of retrieving product and fit-review evidence, the agent should be compared against a baseline Gemini response that does not have access to the dataset tools or the Fit Notes system prompt.
+
+The same user queries should be used for both configurations.
+
+### Comparison prompts
+
+**Prompt 1:**
+
+**Prompt 2:**
+
+**Prompt 3:**
+
+### Agent outputs
+
+**Prompt 1 — Agent response:**
+
+**Prompt 2 — Agent response:**
+
+**Prompt 3 — Agent response:**
+
+### Baseline outputs
+
+**Prompt 1 — Baseline response:**
+
+**Prompt 2 — Baseline response:**
+
+**Prompt 3 — Baseline response:**
+
+### Comparison and findings
+
+**Key differences between the agent and baseline:**
+
+**Examples of recommendations supported by retrieved evidence:**
+
+**Cases where the agent could not find sufficient evidence:**
+
+**Overall findings:**
