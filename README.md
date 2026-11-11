@@ -1,5 +1,9 @@
 # Fit Notes: Evidence-Grounded Clothing Recommendations
 
+**Live demo:** 
+**Path:** Evals + Simple RAG
+**Team:** Shikha Mehta (sjm2291), Simryn Parikh (sap2254)
+
 ## 1. Project Overview
 
 Fit Notes is an AI-powered clothing recommendation assistant designed to help shoppers find products that are more likely to fit them based on customer review data.
@@ -10,44 +14,52 @@ The application combines product search with review-derived fit evidence to gene
 
 **Target audience:** Online clothing shoppers who want recommendations that account for fit, sizing, and the experiences of previous customers.
 
-**Project question:**
-
-Can customer-review-derived fit information help an AI shopping assistant make more reliable and personalized clothing recommendations than a general-purpose language model?
+**Project question:** Can customer-review-derived fit information help an AI shopping assistant make more reliable and personalized clothing recommendations than a general-purpose language model?
 
 ## 2. Dataset
 
 ### Dataset description
 
-Fit Notes uses four Parquet files:
+Fit Notes uses two data sources, stored as five Parquet files:
 
 | File | Description |
 |---|---|
 | `products.parquet` | Product information used for searching and displaying recommendations. |
-| `reviews.parquet` | Customer reviews associated with products. |
-| `fit_extractions.parquet` | Extracted fit-related information from customer reviews. |
-| `fit_summary.parquet` | Aggregated fit information for individual products. |
+| `reviews.parquet` | Customer reviews (those that mention fit) associated with products. |
+| `fit_extractions.parquet` | Structured fit information extracted from each review by Gemini: fit label (small / true / large / unclear), problem areas, reviewer height, and size purchased. |
+| `fit_summary.parquet` | Aggregated fit label counts for individual products. |
+| `rtr.parquet` | Source 2, Rent the Runway fit feedback: per-rental fit verdict (small / fit / large) with the reviewer's height, weight, numeric size rented, and category. Used by the `fit_by_body` tool. |
 
-The application combines `products.parquet` and `fit_summary.parquet` using an inner join on `parent_asin`.
-
-The review and fit-related data are used to provide evidence about how customers experienced the fit of individual products.
+The application combines `products.parquet` and `fit_summary.parquet` using an inner join on `parent_asin`, so only products that have extracted fit data are searchable.
 
 ### Dataset source and provenance
 
-**Dataset source:**
+**Dataset sources:**
 
-**Original dataset URL or reference:**
+1. **Amazon Reviews 2023** (McAuley Lab, UC San Diego), `Amazon_Fashion` category: product metadata and customer reviews. Used for product search and product-specific fit evidence.
+2. **Rent the Runway clothing fit data** (McAuley Lab, UC San Diego; Misra, Wan, and McAuley, "Decomposing Fit Semantics for Product Size Recommendation in Metric Spaces", RecSys 2018): about 192k rental transactions, each with a fit verdict and the reviewer's body measurements. Used for body-based size calibration.
+
+**Original dataset URL or reference:** Amazon: https://amazon-reviews-2023.github.io [FILL IN: add the citation and license line from the dataset page]. Rent the Runway: https://cseweb.ucsd.edu/~jmcauley/datasets.html (file: https://mcauleylab.ucsd.edu/public_datasets/data/renttherunway/renttherunway_final_data.json.gz).
 
 **How the dataset was collected:**
 
-**Date or time period covered by the dataset:**
+1. The Amazon_Fashion metadata and review files were downloaded from the dataset site (`data_raw/`, not committed).
+2. `scripts/build_data.py` kept products whose title mentions a garment type (dress, top, blouse, shirt, tee, sweater, cardigan, jeans, pants, skirt), that have an image and at least 20 ratings (26,288 candidates), then randomly sampled 9,000 (seed 0).
+3. For each sampled product it kept up to 30 reviews that mention fit (matched with a regular expression), and kept only products with at least 5 such reviews (1,739 products, 17,950 reviews).
+4. `scripts/extract_fit.py` sent each product's reviews to Gemini (`gemini-3-flash-preview` on Vertex AI) to extract structured fit labels. Extraction was stopped once enough products were processed because of API rate limits, so the app uses the subset that finished. `scripts/build_fit_tables.py` turns the extraction cache into the two parquet files above.
+5. Rent the Runway: `renttherunway_final_data.json.gz` was downloaded from the McAuley lab site, and `scripts/build_rtr.py` parsed height (to inches), weight (to pounds), and size, dropped rows missing fit, height, or size, and wrote `data/rtr.parquet`. Review text was dropped to keep the file small.
 
-**Number of products:**
+**Date or time period covered by the dataset:** [FILL IN: review date range from the dataset card; the 2023 release covers reviews through 2023]
 
-**Number of reviews:**
+**Number of products (in the app):** [FILL IN: see command in the "Rebuilding the data" section]
 
-**Number of fit extractions:**
+**Number of reviews:** [FILL IN]
 
-**Other relevant dataset details:**
+**Number of fit extractions:** [FILL IN]
+
+**Rent the Runway rows kept:** [FILL IN: printed by `scripts/build_rtr.py`]
+
+**Other relevant dataset details:** The fit labels are LLM-extracted, not human-labeled, and the model was told to answer "unclear" rather than guess. Reviewer height and size are only filled in when the review states them. A few non-clothing items (for example grill parts) matched the title filter and are in the corpus.
 
 ### Data directory structure
 
@@ -56,21 +68,37 @@ The application expects the following files inside a `data/` directory:
 ```text
 project/
 ├── app.py
+├── static/
+│   └── index.html
 ├── data/
 │   ├── products.parquet
 │   ├── reviews.parquet
 │   ├── fit_extractions.parquet
-│   └── fit_summary.parquet
+│   ├── fit_summary.parquet
+│   └── rtr.parquet
+├── scripts/
+├── evals/
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
+```
+
+### Rebuilding the data
+
+```bash
+# 1. download the Amazon_Fashion meta and review .jsonl.gz files into data_raw/
+uv run python scripts/build_data.py        # sample products and fit-mentioning reviews
+uv run python scripts/extract_fit.py       # Gemini fit extraction (needs Vertex AI access)
+uv run python scripts/build_fit_tables.py  # build fit_extractions / fit_summary parquet files
+# 2nd source: download renttherunway_final_data.json.gz into data_raw/ (link above)
+uv run python scripts/build_rtr.py         # Rent the Runway -> data/rtr.parquet
 ```
 
 ## 3. Application Architecture
 
 ### Product retrieval
 
-Fit Notes uses BM25, a ranking algorithm for text retrieval, to identify products relevant to a user's query.
+Fit Notes uses BM25, a ranking algorithm for text retrieval, to identify products relevant to a user's query. Before searching, `search_products` rewrites the shopper's request with Gemini into 6 to 14 plain keywords, adds likely seller-language synonyms (for example "breezy" becomes "lightweight flowy loose"), and extracts a budget if one is stated. If the rewrite call fails, it falls back to rule-based cleanup (dropping filler and fit words, parsing a price cap).
 
 The searchable product text includes:
 - Product title
@@ -78,7 +106,7 @@ The searchable product text includes:
 - Product features
 - The first 500 characters of the product description
 
-The application retrieves relevant products and can filter results using:
+The application can filter results using:
 - Maximum price
 - Minimum number of fit reviews
 
@@ -86,11 +114,11 @@ The default search returns up to five products.
 
 ### Agent tools
 
-The Gemini model can call two tools to retrieve information from the dataset.
+The Gemini model can call three tools to retrieve information from the datasets.
 
 **`search_products`**
 
-Searches for products relevant to a user's request. It supports an optional maximum price and minimum fit-review count.
+Searches for products relevant to a user's request (with the rewrite step above). It supports an optional maximum price and minimum fit-review count.
 
 **`get_fit_evidence`**
 
@@ -101,16 +129,21 @@ Retrieves fit-related evidence for a specific product. The returned information 
 - Short review excerpts
 - Review IDs that can be used to trace the evidence
 
+**`fit_by_body`**
+
+Uses the Rent the Runway data. Given a height (and optionally weight, a numeric size, or a category), it finds reviewers within about 2 inches of that height (and 15 lb of that weight) and returns the share who said small, fit, or large, either for one size or for the sizes with the highest fit rate. This is a body-based calibration for Rent the Runway's numeric sizes. It is not evidence about any specific Amazon product, and the agent is instructed to keep it separate from the product evidence and report the sample size.
+
 ### Agent workflow
 
 1. The user submits a clothing recommendation request through the frontend.
 2. The Gemini model interprets the request and determines which dataset tools are needed.
 3. The model searches for relevant products using `search_products`.
 4. The model retrieves fit evidence for promising candidates using `get_fit_evidence`.
-5. The model combines product information and review-derived fit evidence to produce recommendations.
-6. The frontend displays the response, recommended products, and tool-call information.
+5. If the user gives a height (and ideally weight or size), the model calls `fit_by_body` for a body-based sizing calibration, kept separate from the product evidence.
+6. The model combines product information and review-derived fit evidence to produce recommendations.
+7. The frontend displays the response, recommended products, and tool-call information.
 
-The application limits the conversation history to the most recent six turns and allows up to six tool-call iterations during a response.
+The `/chat` endpoint returns `answer`, `tool_calls` (each with an `agent` field), and `products`. The application limits the conversation history to the most recent six turns and allows up to six tool-call iterations per response.
 
 ### Evidence and limitations
 
@@ -139,9 +172,9 @@ Users can also select one of the example prompts displayed in the frontend to tr
 
 The frontend includes the following example prompts:
 
-- 
-- 
-- 
+- A flowy summer dress. I'm 5'4" and between a medium and large.
+- High-waisted jeans that don't run small, under $40.
+- A soft knit cardigan that fits petite frames.
 
 ### What the application provides
 
@@ -149,7 +182,7 @@ Fit Notes provides product recommendations supported by information retrieved fr
 
 ## 5. Assignment Path: Evals + Simple RAG
 
-**Selected assignment path:**
+**Selected assignment path:** Evals + Simple RAG (`"path": "evals"` in `submission.json`)
 
 ### Research questions
 
@@ -159,106 +192,113 @@ Fit Notes provides product recommendations supported by information retrieved fr
 
 ### Evaluation dataset
 
-**Location of the evaluation questions and labels:**
+**Location of the evaluation questions and labels:** `evals/cases_draft.csv` (columns: `id`, `gold_asin`, `title`, `image_url`, `price`, `query`, `author`, `provenance`)
 
-**Number of labeled evaluation samples:**
+**Number of labeled evaluation samples:** 70
 
-**How the evaluation questions were created:**
+**How the evaluation questions were created:** 70 products were randomly sampled from the app's corpus (seed 7, at least 5 fit reviews each). Gemini drafted one shopper-style request per product from its title and features, with instructions to avoid brand names and not reuse title wording. About a third include a fit preference and a third include a budget. [FILL IN: names] then reviewed every query, fixing or removing vague ones.
 
-**How expected answers were labeled (gold/silver):**
+**How expected answers were labeled (gold/silver):** Silver. The expected answer is the product the query was written from (`gold_asin`). The query text is LLM-drafted and human-reviewed.
 
-**How the source of each evaluation sample was recorded:**
+**How the source of each evaluation sample was recorded:** In the `provenance` and `author` columns of each row.
 
-**Confirmation that evaluation samples were not included in the agent's few-shot prompts:**
+**Confirmation that evaluation samples were not included in the agent's few-shot prompts:** The agent's system prompt contains no few-shot examples, so none of the evaluation queries appear in any prompt.
 
 ### Evaluation metrics and scorers
 
-The assignment requires at least two scorer types.
+**Scorer 1: deterministic retrieval check.** For each query, the rewritten search must return the gold product. Reported as recall@5, recall@20, and mean reciprocal rank (MRR).
 
-**Scorer 1 — Type and description:**
+**Scorer 2: LLM judge with a rubric (`--agent` mode).** The full agent answers each query, and a Gemini judge checks whether every fit claim in the answer (review counts, "runs small", reviewer heights and sizes) is supported by the evidence for the cited products. Score 1 if supported, 0 if not. The same run also reports how often the gold product appears in the agent's final answer.
 
-**Scorer 2 — Type and description:**
-
-**Additional scorers, if applicable:**
-
-**How scorer results are combined or interpreted:**
+**How scorer results are combined or interpreted:** Scorers are reported separately. Retrieval metrics drive the hill-climbing log; the judge score measures whether the answers are faithful to the evidence.
 
 ### Evaluation command
 
 ```bash
-
+uv run python scripts/run_evals.py baseline            # raw BM25 on the full request
+uv run python scripts/run_evals.py stopwords           # rule-based query cleanup
+uv run python scripts/run_evals.py rewrite             # Gemini keyword rewrite
+uv run python scripts/run_evals.py rewrite --agent     # adds end-to-end agent run and judge
 ```
+
+(Requires Vertex AI access: `GOOGLE_GENAI_USE_VERTEXAI=true`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION=global`.)
 
 ### Baseline evaluation
 
-**Baseline configuration:**
+**Baseline configuration:** BM25 over title, store, features, and description, using the full unedited shopper request as the query (top 20, no fit-review minimum).
 
-**Baseline evaluation results:**
+**Baseline evaluation results:** recall@5 = 0.086, recall@20 = 0.143, MRR = 0.057 (n = 70).
 
-**Baseline output examples:**
+**Baseline output examples:** Typical misses were queries that described a product with different words than the listing, for example "scarlet knee-length flared cocktail piece" for a floral lace cap-sleeve dress, and "sheer ankle-length outer layer" for a chiffon swimsuit cover-up.
 
 ### Iterative improvement / hill-climbing log
 
-The assignment requires a baseline and at least two subsequent changes, with evaluation results recorded for each iteration.
-
 | Version | Change made | Evaluation results | Observations |
 |---|---|---|---|
-| Baseline |  |  |  |
-| Iteration 1 |  |  |  |
-| Iteration 2 |  |  |  |
+| Baseline | Raw BM25 on the full request | recall@5 0.086, recall@20 0.143, MRR 0.057 | Queries include filler and fit words, and shoppers use different vocabulary than sellers. |
+| Iteration 1 | Strip filler and fit words, parse the price cap | recall@5 0.129, recall@20 0.214, MRR 0.075 | Gain of +0.043 in recall@5 is smaller than the margin of error, so it is not distinguishable from noise. |
+| Iteration 2 | Gemini rewrites the request into keywords with seller-language synonyms and a budget | recall@5 [FILL IN: 0.571 or final rerun value], recall@20 [0.886], MRR [0.513] | Gain of about +0.44 in recall@5 is far larger than the margin of error. Fixing the vocabulary gap was the main bottleneck. |
+
+**End-to-end (agent) results:** gold product appears in the final answer [FILL IN]% of the time; judge faithfulness [FILL IN] (n = [FILL IN]).
 
 ### Margin of error
 
-The assignment specifies a margin of error of approximately:
+The assignment specifies a margin of error of approximately ±1/√n, where n is the number of labeled evaluation samples.
 
-\[
-\pm \frac{1}{\sqrt{n}}
-\]
+**Number of evaluation samples used:** 70
 
-where \(n\) is the number of labeled evaluation samples.
+**Calculated margin of error:** ±1/√70 ≈ ±0.12
 
-**Number of evaluation samples used:**
-
-**Calculated margin of error:**
-
-**Interpretation:**
+**Interpretation:** A change only counts as a real improvement if it moves a score by more than about 0.12. Iteration 1 does not clear that bar; Iteration 2 does by a wide margin. Rewrites from Gemini are not fully deterministic, so small differences between reruns are expected.
 
 ## 6. Comparison: Agent vs. General-Purpose Model
 
-To evaluate the value of retrieving product and fit-review evidence, the agent should be compared against a baseline Gemini response that does not have access to the dataset tools or the Fit Notes system prompt.
-
-The same user queries should be used for both configurations.
+To evaluate the value of retrieving product and fit-review evidence, the agent is compared against a baseline Gemini response that has no access to the dataset tools and no Fit Notes system prompt. The same user queries are used for both. Full side-by-side output is generated by `scripts/sample_queries.py` into `evals/sample_queries.md`.
 
 ### Comparison prompts
 
-**Prompt 1:**
+**Prompt 1:** A flowy summer dress. I'm 5'4" and between a medium and large.
 
-**Prompt 2:**
+**Prompt 2:** High-waisted jeans that don't run small, under $40.
 
-**Prompt 3:**
+**Prompt 3:** What size should I order in a boxy cropped cardigan, and is it in stock in my size today? (deliberately includes something the data cannot answer)
 
 ### Agent outputs
 
-**Prompt 1 — Agent response:**
+**Prompt 1: Agent response:** [FILL IN: paste from `evals/sample_queries.md`, plus the expected product and its fit counts from `data/fit_summary.parquet` and `data/reviews.parquet`]
 
-**Prompt 2 — Agent response:**
+**Prompt 2: Agent response:** [FILL IN]
 
-**Prompt 3 — Agent response:**
+**Prompt 3: Agent response:** [FILL IN]
 
 ### Baseline outputs
 
-**Prompt 1 — Baseline response:**
+**Prompt 1: Baseline response:** [FILL IN]
 
-**Prompt 2 — Baseline response:**
+**Prompt 2: Baseline response:** [FILL IN]
 
-**Prompt 3 — Baseline response:**
+**Prompt 3: Baseline response:** [FILL IN]
 
 ### Comparison and findings
 
-**Key differences between the agent and baseline:**
+**Key differences between the agent and baseline:** [FILL IN: for example, the agent cites specific products, review counts, and review IDs; the baseline gives generic sizing advice]
 
-**Examples of recommendations supported by retrieved evidence:**
+**Examples of recommendations supported by retrieved evidence:** [FILL IN]
 
-**Cases where the agent could not find sufficient evidence:**
+**Cases where the agent could not find sufficient evidence:** [FILL IN: Prompt 3, where live stock is not in the data]
 
-**Overall findings:**
+**Overall findings:** [FILL IN]
+
+## 7. Limitations
+
+- The evaluation queries were drafted by an LLM from product titles, and the rewrite step uses the same model family, so the measured gain from rewriting may be flattered. Real shopper phrasing could score lower.
+- The corpus has a few hundred products with many near-duplicates (for example, similar dresses), so recall@5 cannot reach 100%.
+- Fit labels are LLM-extracted and can be wrong. A few non-clothing items passed the title filter.
+- Prices and ratings come from the dataset snapshot, not live listings, and stock is not available.
+- Fit counts reflect past reviewers, who may not match the shopper's body or preferences.
+- The Rent the Runway data covers designer rental items in numeric sizes, from people renting for events, so `fit_by_body` calibrates body-to-size patterns only. It says nothing about a specific Amazon product and its sizes do not convert to S/M/L.
+- The agent uses a preview Gemini model, which may change or be rate-limited.
+
+## 8. Deployment
+
+Deployed on Google Cloud Run with continuous deployment from this GitHub repository (buildpacks). Gemini is accessed through Vertex AI using the service account, with `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, and `GOOGLE_CLOUD_LOCATION` set as environment variables. The data files are committed to the repo.
