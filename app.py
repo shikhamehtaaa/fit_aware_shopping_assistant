@@ -11,6 +11,12 @@ from google.genai import types
 from pydantic import BaseModel
 from rank_bm25 import BM25Okapi
 
+import os
+
+os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
+os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "ieor-4570-project-2")
+os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
+
 MODEL = "gemini-3-flash-preview"
 MAX_TURNS = 6
 DATA = Path(__file__).parent / "data"
