@@ -3,7 +3,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import app
 
 QUERIES = [
-    "A flowy summer dress. I'm 5'4\" and between a medium and large.",
+    "A flowy summer dress. I'm 5'4\" and about 140 lbs, between a medium and large.",
     "High-waisted jeans that don't run small, under $40.",
     "What size should I order in a boxy cropped cardigan, and is it in stock in my size today?",
 ]

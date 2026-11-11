@@ -1,6 +1,6 @@
 # Fit Notes: Evidence-Grounded Clothing Recommendations
 
-**Live demo:** 
+**Live demo:** https://fit-aware-shopping-assistant-git-375188753147.europe-west1.run.app
 **Path:** Evals + Simple RAG
 **Team:** Shikha Mehta (sjm2291), Simryn Parikh (sap2254)
 
@@ -237,9 +237,9 @@ uv run python scripts/run_evals.py rewrite --agent     # adds end-to-end agent r
 |---|---|---|---|
 | Baseline | Raw BM25 on the full request | recall@5 0.086, recall@20 0.143, MRR 0.057 | Queries include filler and fit words, and shoppers use different vocabulary than sellers. |
 | Iteration 1 | Strip filler and fit words, parse the price cap | recall@5 0.129, recall@20 0.214, MRR 0.075 | Gain of +0.043 in recall@5 is smaller than the margin of error, so it is not distinguishable from noise. |
-| Iteration 2 | Gemini rewrites the request into keywords with seller-language synonyms and a budget | recall@5 [FILL IN: 0.571 or final rerun value], recall@20 [0.886], MRR [0.513] | Gain of about +0.44 in recall@5 is far larger than the margin of error. Fixing the vocabulary gap was the main bottleneck. |
+| Iteration 2 | Gemini rewrites the request into keywords with seller-language synonyms and a budget | recall@5 0.671, recall@20 0.800, MRR 0.509 | Gain of about +0.54 in recall@5 over Iteration 1 is far larger than the margin of error. Fixing the vocabulary gap was the main bottleneck. |
 
-**End-to-end (agent) results:** gold product appears in the final answer [FILL IN]% of the time; judge faithfulness [FILL IN] (n = [FILL IN]).
+**End-to-end (agent) results** (`rewrite --agent`, n = 70): the gold product appears in the agent's final answer in 74.3% of cases (52 of 70), and judge faithfulness is 0.771 (54 of 70 answers had every fit claim supported by the cited evidence). The end-to-end hit rate is higher than retrieval-only recall@5 (0.671), most likely because the agent can run several searches and recommend up to three products.
 
 ### Margin of error
 
@@ -249,7 +249,7 @@ The assignment specifies a margin of error of approximately ±1/√n, where n is
 
 **Calculated margin of error:** ±1/√70 ≈ ±0.12
 
-**Interpretation:** A change only counts as a real improvement if it moves a score by more than about 0.12. Iteration 1 does not clear that bar; Iteration 2 does by a wide margin. Rewrites from Gemini are not fully deterministic, so small differences between reruns are expected.
+**Interpretation:** A change only counts as a real improvement if it moves a score by more than about 0.12. Iteration 1 does not clear that bar; Iteration 2 does by a wide margin. Gemini rewrites are not deterministic: repeated runs of the rewrite mode gave recall@5 between about 0.57 and 0.69, so the reported numbers are from the final run. The gain over Iteration 1 exceeds the margin in every run. The judge faithfulness score has the same margin (about ±0.12), so it is reported as a measurement, not as an improvement.
 
 ## 6. Comparison: Agent vs. General-Purpose Model
 
@@ -257,7 +257,7 @@ To evaluate the value of retrieving product and fit-review evidence, the agent i
 
 ### Comparison prompts
 
-**Prompt 1:** A flowy summer dress. I'm 5'4" and between a medium and large.
+**Prompt 1:** A flowy summer dress. I'm 5'4" and about 140 lbs, between a medium and large.
 
 **Prompt 2:** High-waisted jeans that don't run small, under $40.
 
@@ -265,35 +265,42 @@ To evaluate the value of retrieving product and fit-review evidence, the agent i
 
 ### Agent outputs
 
-**Prompt 1: Agent response:** [FILL IN: paste from `evals/sample_queries.md`, plus the expected product and its fit counts from `data/fit_summary.parquet` and `data/reviews.parquet`]
+**Prompt 1: Agent response:** Recommended three dresses (KIRA Womens Midi Dress [B07BF6L6WM], CHUNTIANRAN Casual Loose Maxi Dress [B097M4MPHR], MSBASIC Flowy A-line Dress [B0795GRR39]) with counts and review IDs: for example 17 of 20 fit-mentioning reviews call the KIRA dress true to size, and 11 of 19 for CHUNTIANRAN, with 6 saying it runs small. It flagged evidence as thin where it was, and ended with a separate Rent the Runway calibration for 5'4" and 140 lbs (n = 27,842 similar reviewers): 75.3% of size 8 rentals fit, 72% of size 12, and 73.8% of size 14.
 
-**Prompt 2: Agent response:** [FILL IN]
+*Expected answer and source:* B07BF6L6WM has 17 true / 2 small / 1 large fit labels in `data/fit_summary.parquet`, backed by review IDs in `data/reviews.parquet`. The calibration comes from `data/rtr.parquet`.
 
-**Prompt 3: Agent response:** [FILL IN]
+**Prompt 2: Agent response:** Returned three products (June Julien Jeggings [B01KC7WVHK], Creabygirls Ripped High Waist Jeans [B01331SHAW], PajamaJeans Bootcut [B01595T8J4]) and noted that the price was not listed for any of them. For the first, 18 of 22 fit-mentioning reviews say true to size and 4 say large, with none saying small, which matches the "don't run small" requirement.
+
+*Expected answer and source:* B01KC7WVHK has 18 true / 4 large fit labels in `data/fit_summary.parquet`. The budget could not be verified because the dataset has no price for these items.
+
+**Prompt 3: Agent response:** Returned three cardigans with fit counts (for example 11 of 13 reviews true to size for DRSKIN [B018TZMTBK], and 3 of 6 for YourStyle [B01E9CKGI0], flagged as thin evidence) and stated that current stock and today's price are not in the dataset. It did not make up availability.
+
+*Expected behavior:* give review-based sizing evidence and say the stock question cannot be answered from the data.
 
 ### Baseline outputs
 
-**Prompt 1: Baseline response:** [FILL IN]
+**Prompt 1: Baseline response:** General advice on tiered, wrap, and empire-waist dresses, with a Medium-or-Large rule of thumb that depends on fabric stretch, plus brand suggestions (Quince, Old Navy, Abercrombie). No sources and no counts, and the brand suggestions cannot be checked against this dataset.
 
-**Prompt 2: Baseline response:** [FILL IN]
+**Prompt 2: Baseline response:** A list of five budget denim lines (Old Navy, Target's Universal Thread, Walmart, Amazon Essentials, Signature by Levi Strauss) with price ranges and fit claims from memory, plus generic tips about spandex content. Nothing can be traced to a source, and the prices may be out of date.
 
-**Prompt 3: Baseline response:** [FILL IN]
+**Prompt 3: Baseline response:** Asked for the brand, store, and usual size, gave generic sizing rules for boxy and cropped cardigans, and offered to check availability once given a link, which it cannot actually do.
 
 ### Comparison and findings
 
-**Key differences between the agent and baseline:** [FILL IN: for example, the agent cites specific products, review counts, and review IDs; the baseline gives generic sizing advice]
+**Key differences between the agent and baseline:** The agent names specific products and backs each fit claim with review counts and review IDs that can be looked up in `data/reviews.parquet`, and its counts match the evidence it retrieved (see the evidence blocks in `evals/sample_queries.md`). It keeps the Rent the Runway body calibration separate from product evidence and reports sample sizes and thin evidence. The baseline gives general sizing and styling advice and names brands and prices from memory that cannot be checked. In Prompt 3 the baseline also offers to check live stock, which it cannot do, while the agent states that stock is not in its data.
 
-**Examples of recommendations supported by retrieved evidence:** [FILL IN]
+**Examples of recommendations supported by retrieved evidence:** The KIRA midi dress (17 of 20 fit-mentioning reviews true to size, with reviewers at 5'4" cited) for Prompt 1, and the June Julien jeggings (18 of 22 true to size, 4 large, none small) for Prompt 2.
 
-**Cases where the agent could not find sufficient evidence:** [FILL IN: Prompt 3, where live stock is not in the data]
+**Cases where the agent could not find sufficient evidence:** Prompt 3 asks about live stock, which is not in the data. In Prompt 2, none of the three products had a listed price, so the "under $40" requirement could not be verified. In Prompt 3 the cardigans returned were not confirmed to be boxy or cropped, and the answer did not say so. Several products had only 6 to 10 fit-mentioning reviews, which the agent flagged as thin.
 
-**Overall findings:** [FILL IN]
+**Overall findings:** Grounding in review evidence makes the answers more specific and checkable than the baseline, at the cost of a small catalog (a few hundred products), so the agent can only recommend what is in the data, where a general model will always offer generic suggestions. The Rent the Runway calibration was only weakly informative here: fit rates were similar across sizes 8, 12, and 14 (72% to 75%), probably because renters tend to pick sizes that work for them. The LLM judge scored 77% of answers as fully supported (see section 5), so some claims still go beyond the cited evidence.
 
 ## 7. Limitations
 
 - The evaluation queries were drafted by an LLM from product titles, and the rewrite step uses the same model family, so the measured gain from rewriting may be flattered. Real shopper phrasing could score lower.
 - The corpus has a few hundred products with many near-duplicates (for example, similar dresses), so recall@5 cannot reach 100%.
-- Fit labels are LLM-extracted and can be wrong. A few non-clothing items passed the title filter.
+- Fit labels are LLM-extracted and can be wrong. A few non-clothing items passed the title filter, and one evaluation case's gold product is such an item (a grill part), which counts as a miss.
+- Judge faithfulness of 0.77 means roughly a quarter of answers contained at least one fit claim the judge could not verify against the evidence. The judge only sees the evidence for up to three cited products, so it may be stricter than a human reader.
 - Prices and ratings come from the dataset snapshot, not live listings, and stock is not available.
 - Fit counts reflect past reviewers, who may not match the shopper's body or preferences.
 - The Rent the Runway data covers designer rental items in numeric sizes, from people renting for events, so `fit_by_body` calibrates body-to-size patterns only. It says nothing about a specific Amazon product and its sizes do not convert to S/M/L.

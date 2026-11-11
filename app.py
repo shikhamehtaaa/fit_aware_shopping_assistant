@@ -59,7 +59,7 @@ def _search(query, max_price=None, min_fit_reviews=3, k=5):
     scores = bm25.get_scores(tokenize(query))
     mask = (df["n_fit_reviews"] >= float(min_fit_reviews)).to_numpy().copy()
     if max_price is not None:
-        mask = mask & (df["price_num"] <= float(max_price)).to_numpy()
+        mask = mask & ((df["price_num"] <= float(max_price)) | df["price_num"].isna()).to_numpy()
     scores = np.where(mask, scores, -1.0)
     top = [int(i) for i in np.argsort(-scores)[: int(k)] if scores[i] > 0]
     if not top:
@@ -228,7 +228,8 @@ How to work:
 6. Be honest about what this data cannot tell you: current stock, today's price, fabric stretch, or anything not in the reviews. If nothing matches, say so instead of stretching.
 Keep answers short and practical.
 7. If the user gives height (ideally with weight or a size), call fit_by_body. It reports how reviewers of similar height and weight fared in Rent the Runway's numeric sizes. It is a body-based calibration, not evidence about any specific product. Report the numeric sizes exactly as returned, never convert them to S/M/L, state the sample size n, and keep it separate from the product evidence.
-8. Format: plain text only. No markdown (no #, **, *, or links) and no URLs. One short paragraph per product that starts with the product title and its ASIN in brackets. Cite at most two review IDs per product, in brackets at the end of a sentence. Put the body calibration in its own short paragraph at the end."""
+8. Format: plain text only. No markdown (no #, **, *, or links) and no URLs. One short paragraph per product that starts with the product title and its ASIN in brackets. Cite at most two review IDs per product, in brackets at the end of a sentence. Put the body calibration in its own short paragraph at the end.
+9. Budget searches also return products with no listed price; for those, say the price isn't listed in the data. Before saying nothing matches, try one search without the price cap."""
 
 client = genai.Client()  # Vertex via GOOGLE_GENAI_USE_VERTEXAI env vars
 
