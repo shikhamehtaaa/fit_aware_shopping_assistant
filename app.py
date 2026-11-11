@@ -209,46 +209,6 @@ def chat(req: ChatRequest):
     return {"answer": answer, "tool_calls": tool_calls, "products": cards}
 
 
-PAGE = """<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Fit-Aware Shopping Assistant</title>
-<style>
-body{font-family:system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#222}
-h1{margin-bottom:.2rem}.sub{color:#555;margin-top:0}
-textarea{width:100%;box-sizing:border-box;padding:.7rem;font-size:1rem;border:1px solid #bbb;border-radius:8px}
-button{padding:.6rem 1.1rem;font-size:1rem;border:0;border-radius:8px;background:#222;color:#fff;cursor:pointer}
-.chip{background:#eee;color:#222;font-size:.85rem;margin:.2rem .3rem .2rem 0}
-#answer{white-space:pre-wrap;margin:1rem 0;line-height:1.5}
-.cards{display:flex;gap:.8rem;flex-wrap:wrap}.card{width:215px;border:1px solid #ddd;border-radius:10px;padding:.6rem;font-size:.85rem}
-.card img{width:100%;height:210px;object-fit:cover;border-radius:6px}
-details{margin-top:1rem;font-size:.85rem}pre{white-space:pre-wrap;background:#f6f6f6;padding:.5rem;border-radius:6px}
-</style></head><body>
-<h1>Fit-Aware Shopping Assistant</h1>
-<p class="sub">Describe a clothing item and your measurements. The agent searches ~N_PRODUCTS Amazon fashion products and checks what thousands of reviews say about how each one actually fits. Built for people who are tired of guessing sizes online. It only knows this dataset: no live stock or prices, and it will say when the reviews don't answer your question.</p>
-<textarea id="q" rows="3" placeholder="e.g. A boxy cropped cardigan under $30. I'm 5'3&quot; and tops usually swallow me."></textarea>
-<div><button onclick="ask()">Find it</button>
-<button class="chip" onclick="fill(this)">flowy summer dress, I'm 5'4" and between a M and L</button>
-<button class="chip" onclick="fill(this)">high-waisted jeans that don't run small, under $40</button></div>
-<div id="answer"></div><div class="cards" id="cards"></div><div id="trace"></div>
-<script>
-function fill(b){document.getElementById('q').value=b.textContent}
-async function ask(){
- const q=document.getElementById('q').value.trim(); if(!q)return;
- const a=document.getElementById('answer'),c=document.getElementById('cards'),t=document.getElementById('trace');
- a.textContent='Searching and reading reviews...';c.innerHTML='';t.innerHTML='';
- try{
-  const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:q})});
-  const d=await r.json(); a.textContent=d.answer;
-  (d.products||[]).forEach(p=>{const e=document.createElement('div');e.className='card';
-   const im=document.createElement('img');im.src=p.image_url;im.referrerPolicy='no-referrer';e.appendChild(im);
-   const s=document.createElement('div');s.textContent=p.title+(p.price?' - $'+p.price:'')+' | fit reviews: '+p.fit.small+' small, '+p.fit.true+' true, '+p.fit.large+' large';
-   e.appendChild(s);c.appendChild(e)});
-  const det=document.createElement('details');const sm=document.createElement('summary');sm.textContent='Show work ('+d.tool_calls.length+' tool calls)';det.appendChild(sm);
-  const pre=document.createElement('pre');pre.textContent=JSON.stringify(d.tool_calls,null,2);det.appendChild(pre);t.appendChild(det);
- }catch(e){a.textContent='Something went wrong: '+e}
-}
-</script></body></html>""".replace("N_PRODUCTS", str(len(df)))
-
-
 @app.get("/", response_class=HTMLResponse)
 def home():
-    return PAGE
+    return (Path(__file__).parent / "static" / "index.html").read_text()
