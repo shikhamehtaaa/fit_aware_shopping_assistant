@@ -1,7 +1,9 @@
 # Fit Notes: Evidence-Grounded Clothing Recommendations
 
 **Live demo:** https://fit-aware-shopping-assistant-git-375188753147.europe-west1.run.app
+
 **Path:** Evals + Simple RAG
+
 **Team:** Shikha Mehta (sjm2291), Simryn Parikh (sap2254)
 
 ## 1. Project Overview
