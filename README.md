@@ -43,13 +43,13 @@ The application combines `products.parquet` and `fit_summary.parquet` using an i
 
 **How the dataset was collected:**
 
-1. The Amazon_Fashion metadata and review files were downloaded from the dataset site (`data_raw/`, not committed).
-2. `scripts/build_data.py` kept products whose title mentions a garment type (dress, top, blouse, shirt, tee, sweater, cardigan, jeans, pants, skirt), that have an image and at least 20 ratings (26,288 candidates), then randomly sampled 9,000 (seed 0).
-3. For each sampled product it kept up to 30 reviews that mention fit (matched with a regular expression), and kept only products with at least 5 such reviews (1,739 products, 17,950 reviews).
-4. `scripts/extract_fit.py` sent each product's reviews to Gemini (`gemini-3-flash-preview` on Vertex AI) to extract structured fit labels. Extraction was stopped once enough products were processed because of API rate limits, so the app uses the subset that finished. `scripts/build_fit_tables.py` turns the extraction cache into the two parquet files above.
-5. Rent the Runway: `renttherunway_final_data.json.gz` was downloaded from the McAuley lab site, and `scripts/build_rtr.py` parsed height (to inches), weight (to pounds), and size, dropped rows missing fit, height, or size, and wrote `data/rtr.parquet`. Review text was dropped to keep the file small.
+1. We downloaded the Amazon Fashion metadata and review files from the dataset website and stored them in `data_raw/` (these files are not included in the repository).
+2. In `scripts/build_data.py`, we filtered for products with a garment type in the title (dress, top, blouse, shirt, tee, sweater, cardigan, jeans, pants, or skirt), an image, and at least 20 ratings. This left us with 26,288 products, from which we randomly sampled 9,000 using seed 0.
+3. For each product, we kept up to 30 reviews that mentioned fit or sizing, using a regular expression to identify relevant reviews. We then removed products with fewer than 5 matching reviews, leaving 1,739 products and 17,950 reviews.
+4. We used `scripts/extract_fit.py` to send the reviews to Gemini (`gemini-3-flash-preview` on Vertex AI) and extract structured fit information. Because of API rate limits, we stopped the extraction before processing the entire dataset and used the subset of products that had finished processing. We then used `scripts/build_fit_tables.py` to turn the extraction results into the two parquet files.
+5. For Rent the Runway, we downloaded `renttherunway_final_data.json.gz` from the McAuley Lab website. The script `scripts/build_rtr.py` converted height to inches and weight to pounds, removed rows missing fit, height, or size information, and saved the results to `data/rtr.parquet`. We dropped the review text to keep the file size smaller.
 
-**Other relevant dataset details:** The fit labels are LLM-extracted, not human-labeled, and the model was told to answer "unclear" rather than guess. Reviewer height and size are only filled in when the review states them. A few non-clothing items (for example grill parts) matched the title filter and are in the corpus.
+**Other relevant dataset details:** The fit labels were extracted using an LLM rather than manually labeled. The model was instructed to return "unclear" instead of guessing when the review did not provide enough information. Reviewer height and size information was only included when explicitly mentioned in the review. The title filter also picked up a small number of non-clothing products (such as grill parts), which remain in the dataset.
 
 ### Data directory structure
 
