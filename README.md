@@ -26,9 +26,9 @@ Fit Notes uses two data sources, stored as five Parquet files:
 |---|---|
 | `products.parquet` | Product information used for searching and displaying recommendations. |
 | `reviews.parquet` | Customer reviews that mention fit associated with products. |
-| `fit_extractions.parquet` | Structured fit information extracted from each review by Gemini: fit label (small / true / large / unclear), problem areas, reviewer height, and size purchased. |
+| `fit_extractions.parquet` | Structured fit information extracted from each review by Gemini for fit label (small / true / large / unclear), problem areas, reviewer height, and size purchased. |
 | `fit_summary.parquet` | Aggregated fit label counts for individual products. |
-| `rtr.parquet` | Source 2, Rent the Runway fit feedback: per-rental fit verdict (small / fit / large) with the reviewer's height, weight, numeric size rented, and category. Used by the `fit_by_body` tool. |
+| `rtr.parquet` | Rent the Runway fit feedback of per-rental fit verdict (small / fit / large) with the reviewer's height, weight, numeric size rented, and category. Used by the `fit_by_body` tool. |
 
 The application combines `products.parquet` and `fit_summary.parquet` using an inner join on `parent_asin`, so only products that have extracted fit data are searchable.
 
