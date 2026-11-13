@@ -8,15 +8,13 @@
 
 ## 1. Project Overview
 
-Fit Notes is an AI-powered clothing recommendation assistant designed to help shoppers find products that are more likely to fit them based on customer review data.
+Fit Notes is a clothing recommendation assistant designed to help shoppers find products that are more likely to fit them based on customer review data. General-purpose shopping assistants may recommend products based on descriptions, product features, or broad customer sentiment. However, we designed Fit Notes to go a step further by retrieving fit-related information from customer reviews, including whether reviewers found an item true to size, too small, or too large.
 
-General-purpose shopping assistants may recommend products based on descriptions, product features, or broad customer sentiment. Fit Notes goes a step further by retrieving fit-related information from customer reviews, including whether reviewers found an item true to size, too small, or too large.
-
-The application combines product search with review-derived fit evidence to generate recommendations. Users can ask for clothing recommendations in natural language, provide preferences such as budget or fit requirements, and inspect the evidence behind the assistant's suggestions.
+The application combines product search with review-derived fit evidence to generate recommendations. Users can ask for clothing recommendations in natural language, provide preferences such as budget or fit requirements, and then inspect the evidence behind the assistant's suggestions.
 
 **Target audience:** Online clothing shoppers who want recommendations that account for fit, sizing, and the experiences of previous customers.
 
-**Project question:** Can customer-review-derived fit information help an AI shopping assistant make more reliable and personalized clothing recommendations than a general-purpose language model?
+**Project question:** Can customer-review-derived fit information help an agentic shopping assistant make more reliable and personalized clothing recommendations than a general-purpose language model?
 
 ## 2. Dataset
 
